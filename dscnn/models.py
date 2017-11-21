@@ -1,21 +1,21 @@
 import sys
 from collections import OrderedDict
-import numpy
+import numpy as np
 
 import theano
 from theano import config
 import theano.tensor as tensor
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
-from layers import layers,get_layer,dropout_layer
-from utils import numpy_floatX
+from layers import layers, get_layer, dropout_layer
+from utils import np_floatX
 
 def init_params(options):
     params = OrderedDict()
     W = options['W']
     # embedding
     if W is None:
-        randn = numpy.random.rand(options['n_words'],options['dim_proj'])
+        randn = np.random.rand(options['n_words'], options['dim_proj'])
         params['Wemb'] = (0.01 * randn).astype(config.floatX)
     else:
         for i in range(len(W)):
@@ -27,13 +27,13 @@ def init_params(options):
         # add deep feedforward layers
         deep = options['deep']
         for layer in range(deep):
-            params['U'+str(layer+1)] = 0.01*numpy.random.randn(options['dim_proj'], options['dim_proj']).astype(config.floatX)
-            params['b'+str(layer+1)] = numpy.zeros((options['dim_proj'],)).astype(config.floatX)
+            params['U'+str(layer+1)] = 0.01*np.random.randn(options['dim_proj'], options['dim_proj']).astype(config.floatX)
+            params['b'+str(layer+1)] = np.zeros((options['dim_proj'],)).astype(config.floatX)
 
         # classifier
-        params['U'] = 0.01 * numpy.random.randn(options['dim_proj'],
+        params['U'] = 0.01 * np.random.randn(options['dim_proj'],
                                             options['ydim']).astype(config.floatX)
-        params['b'] = numpy.zeros((options['ydim'],)).astype(config.floatX)
+        params['b'] = np.zeros((options['ydim'],)).astype(config.floatX)
 
     elif options['encoder'] == 'cnnlstm' or options['encoder'] == 'cnngru':
 
@@ -53,57 +53,58 @@ def init_params(options):
                 prefixs.append(layer_j)
                 if options['bidir']:
                     prefixs.append(layer_j+'reverse')
-
         options['prefixs'] = prefixs
         #print prefixs
 
         for p in prefixs:
-            params = get_layer(options['encoder'])[0](options,params,prefix=p)
+            params = get_layer(options['encoder'])[0](options, params, prefix=p)
 
         #print params.keys()
 
-        if options['salstm'] and not options['bidir'] and not options['rnnshare'] and len(W) == 2 and options['rnnlayer'] == 1:
+        #if options['salstm'] and not options['bidir'] and not options['rnnshare'] and len(W) == 2 and options['rnnlayer'] == 1:
             #first emb is word2vec and then glove840b300d
-            if options['dataset'] in ['sst5','sst2']:
-                path = ['../sa_lstm/sst_word2vec_sa_lstm_model.npz','../sa_lstm/sst_glove840b300d_sa_lstm_model.npz']
-            elif options['dataset'] == 'trec':
-                path = ['../sa_lstm/trec_word2vec_sa_lstm_model.npz','../sa_lstm/trec_glove840b300d_sa_lstm_model.npz']
+           
+            #if options['dataset'] in ['sst5','sst2']:
+            #    path = ['../sa_lstm/sst_word2vec_sa_lstm_model.npz','../sa_lstm/sst_glove840b300d_sa_lstm_model.npz']
+            #elif options['dataset'] == 'trec':
+            #    path = ['../sa_lstm/trec_word2vec_sa_lstm_model.npz','../sa_lstm/trec_glove840b300d_sa_lstm_model.npz']
 
-            cnt=0
-            for pre,pa in zip(prefixs,path):
+            #cnt=0
+            #for pre, pa in zip(prefixs, path):
                 #copy lstm parameters and Wemb
-                pp = numpy.load(pa)
-                for kk,vv in pp.iteritems():
-                    if kk.startswith('lstm'):
-                        #print pre+kk[4:]
-                        params[pre+kk[4:]] = vv
-                    elif kk.startswith('Wemb'):
+            #    pp = np.load(pa)
+            #    for kk, vv in pp.items():
+            #        if kk.startswith('lstm'):
+            #            #print pre+kk[4:]
+            #            params[pre+kk[4:]] = vv
+            #        elif kk.startswith('Wemb'):
                         #print kk
-                        params['Wemb'+str(cnt)] == vv
+            #            params['Wemb'+str(cnt)] == vv
 
-                cnt += 1  
+            #    cnt += 1  
         #print params.keys()
          
 
         #cnn layer parameters
-        params = get_layer(options['encoder'])[1](options,params)
+
+        params = get_layer(options['encoder'])[1](options, params)
 
         #classifer U,b
         feature_maps = options['feature_maps']
         filter_hs = options['filter_hs']
-        params['U'] = 0.01 * numpy.random.randn(feature_maps*len(filter_hs),options['ydim']).astype(config.floatX)
-        params['b'] = numpy.zeros((options['ydim'],)).astype(config.floatX)
+        params['U'] = 0.01 * np.random.randn(feature_maps*len(filter_hs),options['ydim']).astype(config.floatX)
+        params['b'] = np.zeros((options['ydim'],)).astype(config.floatX)
        
     else:
         print('Undefined Encoder')
-
+    
     return params
 
 def build_model(tparams, options,SEED):
     trng = RandomStreams(SEED)
 
     # Used for dropout.
-    use_noise = theano.shared(numpy_floatX(0.))
+    use_noise = theano.shared(np_floatX(0.))
 
     x = tensor.matrix('x', dtype='int64')
     mask = tensor.matrix('mask', dtype=config.floatX)
@@ -180,7 +181,8 @@ def build_model(tparams, options,SEED):
     elif options['encoder'] == 'cnnlstm' or options['encoder'] == 'cnngru':
         proj = tensor.concatenate(projs,3)
         # CNN Layer
-        proj = get_layer(options['encoder'])[3](tparams,proj,options)
+
+        proj = get_layer(options['encoder'])[3](tparams, proj, options)
 
     else:
         print('Undefined Encoder')

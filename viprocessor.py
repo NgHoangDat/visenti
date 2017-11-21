@@ -117,15 +117,12 @@ def build_data_cv(revs, cv=10, lowered=True, tokenized=True, punctuation_removed
     return out_revs, vocab, max_l, count
 
 
-def build_dataset(data_folder, dim=300, cv=10):
+def build_dataset(data_folder, we_folder, dim=300, cv=10):
     print("loading data...")
-    revs = read_file(data_folder)
-    
-    print("building words vector...")
-    wv = create_word_vec([rev for rev, _ in revs], dim=dim)
-    
+    origin_revs = read_file(data_folder)
+        
     revs, vocab, max_l, count = build_data_cv(
-        revs,
+        origin_revs,
         cv=cv,
         lowered=True,
         tokenized=False,
@@ -143,15 +140,32 @@ def build_dataset(data_folder, dim=300, cv=10):
     print("max sentence length: " + str(max_l))
         
     word_idx_map = create_word_idx_map(vocab)
-    
-    add_unknown_words(wv, vocab, dim=dim)
-    W = get_W(wv, dim=dim)
+    word_embeding = {}
+        
 
-    rand_vecs = {}
-    add_unknown_words(rand_vecs, vocab, dim=dim)
-    W2 = get_W(rand_vecs, dim=dim)
+    print("building  word2vec...")
+    wv = create_word_vec([rev for rev, _ in origin_revs], dim=dim)
+    add_unknown_words(wv, vocab, dim=dim)
+    word_embeding['w2v'] = get_W(wv, dim=dim)
+    
+    print("building random word vector...")
+    wv = {}
+    add_unknown_words(wv, vocab, dim=dim)
+    word_embeding['rand'] = get_W(wv, dim=dim)
+    
+    print("loading glove...")
+    wv = {}
+    print(we_folder)
+    with open(we_folder + 'glove' + str(dim), 'r', encoding='utf-8') as f:
+        for line in f.readlines():
+            line = line.split()
+            if line[0] in vocab:
+                wv[line[0]] = np.array(line[1:]).astype(np.float32)
+    add_unknown_words(wv, vocab, dim=dim)
+    word_embeding['glove'] = get_W(wv, dim=dim)
+
     print("dataset created!")
-    return revs, W, W2, word_idx_map, vocab, max_l
+    return revs, word_embeding, word_idx_map, vocab, max_l
 
 
 if __name__=="__main__":  
@@ -159,7 +173,8 @@ if __name__=="__main__":
         "./data/en-neg",
         "./data/en-pos"
     ]
+    we_folder = './data/'
     save_file = "./data/data.p"
     dim = 300
     cv = 10
-    cPickle.dump(build_dataset(data_folder, dim, cv), open(save_file, "wb"))
+    cPickle.dump(build_dataset(data_folder, we_folder, dim, cv), open(save_file, "wb"))

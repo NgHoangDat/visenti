@@ -1,7 +1,7 @@
 import theano
 from theano import config
 import theano.tensor as tensor
-import numpy
+import numpy as np
 
 from collections import OrderedDict
 
@@ -9,8 +9,8 @@ def ReLU(x):
     y = tensor.maximum(0.0,x)
     return y
 
-def numpy_floatX(data):
-    return numpy.asarray(data, dtype=config.floatX)
+def np_floatX(data):
+    return np.asarray(data, dtype=config.floatX)
 
 
 def get_minibatches_idx(n, minibatch_size, shuffle=False):
@@ -18,10 +18,10 @@ def get_minibatches_idx(n, minibatch_size, shuffle=False):
     Used to shuffle the dataset at each iteration.
     """
 
-    idx_list = numpy.arange(n, dtype="int32")
+    idx_list = np.arange(n, dtype="int32")
 
     if shuffle:
-        numpy.random.shuffle(idx_list)
+        np.random.shuffle(idx_list)
 
     minibatches = []
     minibatch_start = 0
@@ -41,7 +41,7 @@ def zipp(params, tparams):
     """
     When we reload the model. Needed for the GPU stuff.
     """
-    for kk, vv in params.iteritems():
+    for kk, vv in params.items():
         tparams[kk].set_value(vv)
 
 
@@ -50,7 +50,7 @@ def unzip(zipped):
     When we pickle the model. Needed for the GPU stuff.
     """
     new_params = OrderedDict()
-    for kk, vv in zipped.iteritems():
+    for kk, vv in zipped.items():
         new_params[kk] = vv.get_value()
     return new_params
 
@@ -58,8 +58,8 @@ def _p(pp, name):
     return '%s_%s' % (pp, name)
 
 def load_params(path, params):
-    pp = numpy.load(path)
-    for kk, vv in params.iteritems():
+    pp = np.load(path)
+    for kk, vv in params.items():
         if kk not in pp:
             raise Warning('%s is not in the archive' % kk)
         params[kk] = pp[kk]
@@ -69,13 +69,13 @@ def load_params(path, params):
 
 def init_tparams(params):
     tparams = OrderedDict()
-    for kk, pp in params.iteritems():
+    for kk, pp in params.items():
         tparams[kk] = theano.shared(params[kk], name=kk)
     return tparams
 
 def ortho_weight(ndim):
-    W = numpy.random.randn(ndim, ndim)
-    u, s, v = numpy.linalg.svd(W)
+    W = np.random.randn(ndim, ndim)
+    u, s, v = np.linalg.svd(W)
     return u.astype(config.floatX)
 
 def norm_weight(nin,nout=None, scale=0.1, ortho=True):
@@ -88,5 +88,5 @@ def norm_weight(nin,nout=None, scale=0.1, ortho=True):
     if nout == nin and ortho:
         W = ortho_weight(nin)
     else:
-        W = numpy.random.uniform(low=-scale, high=scale, size=(nin, nout))
+        W = np.random.uniform(low=-scale, high=scale, size=(nin, nout))
     return W.astype(config.floatX)

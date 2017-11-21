@@ -1,35 +1,37 @@
-import time,sys
-import numpy
+import sys
+from time import time
+import numpy as np
 import theano
 from theano import config
 import theano.tensor as tensor
 
-from models import init_params,build_model
+from six.moves import cPickle as pkl
+from models import init_params, build_model
 from optimizers import optims
-from utils import numpy_floatX,get_minibatches_idx,load_params,init_tparams,unzip,zipp
+from utils import np_floatX, get_minibatches_idx, load_params, init_tparams, unzip, zipp
 
 # Set the random number generators' seeds for consistency
 SEED = 123
-numpy.random.seed(SEED)
+np.random.seed(SEED)
 
 def pred_probs(f_pred_prob, prepare_data, data, iterator, verbose=False):
     """ If you want to use a trained model, this is useful to compute
     the probabilities of new examples.
     """
     n_samples = len(data[0])
-    probs = numpy.zeros((n_samples, 2)).astype(config.floatX)
+    probs = np.zeros((n_samples, 2)).astype(config.floatX)
 
     n_done = 0
 
     for _, valid_index in iterator:
         x, mask, y = prepare_data([data[0][t] for t in valid_index],
-                                  numpy.array(data[1])[valid_index])
+                                  np.array(data[1])[valid_index])
         pred_probs = f_pred_prob(x, mask)
         probs[valid_index, :] = pred_probs
 
         n_done += len(valid_index)
         if verbose:
-            print '%d/%d samples classified' % (n_done, n_samples)
+            print('%d/%d samples classified' % (n_done, n_samples))
 
     return probs
 
@@ -49,9 +51,9 @@ def pred_error(f_pred, prepare_data, data, iterator, fname='', verbose=False):
         cnt = 0
     for b, valid_index in iterator:
         x ,mask,y = prepare_data([data[0][t] for t in valid_index],
-                                  numpy.array(data[1])[valid_index])
+                                  np.array(data[1])[valid_index])
         preds = f_pred(x, mask)
-        targets = numpy.array(data[1])[valid_index]
+        targets = np.array(data[1])[valid_index]
         
         
         if verbose:
@@ -64,30 +66,110 @@ def pred_error(f_pred, prepare_data, data, iterator, fname='', verbose=False):
                 cnt += 1       
         
         valid_err += (preds == targets).sum()
-    valid_err = 1. - numpy_floatX(valid_err) / len(data[0])
+    valid_err = 1. - np_floatX(valid_err) / len(data[0])
 
     return valid_err * 100
 
 
+def _prepare_data(seqs , labels , max_l=None, pad=None):
+    
+    if not len(seqs):
+        return None, None, None
+    
+    lengths = [len(s) for s in seqs]
+    if max_l:
+        n_seqs = []
+        n_labels = []
+        n_lens = []
+        for l, s, y in zip(lengths, seqs, labels):
+            if l <= max_l:
+                n_seqs.append(s)
+                n_labels.append(y)
+                n_lens.append(l)
+        lengths = n_lens
+        labels = n_labels
+        seqs = n_seqs
+    
+    if pad:
+        max_l = max_l + 2 * pad
+        x = np.zeros((max_l, len(seqs))).astype('int64')
+        x_mask = np.zeros((max_l, len(seqs))).astype(theano.config.floatX)
+        for idx, s in enumerate(seqs):
+            x[pad:pad + lengths[idx], idx] = s
+            x_mask[pad:pad + lengths[idx], idx] = 1.
+    else:
+        x = np.zeros((max_l, len(seqs))).astype('int64')
+        x_mask = np.zeros((max_l, len(seqs))).astype(theano.config.floatX)
+        for idx, s in enumerate(seqs):
+            x[:lengths[idx], idx] = s
+            x_mask[:lengths[idx], idx] = 1.
+
+    return x, x_mask, labels
+
+
+def _load_data(revs, word_idx_map, fold=1, sort_by_len=True, valid_portion=0.1):
+    train_x, train_y = [], []
+    valid_x, valid_y = [], []
+    test_x, test_y = [], []
+
+    for rev in revs:
+        sent = [word_idx_map[w] for w in rev['text'].split() if w in word_idx_map]
+
+        if rev['split'] == fold:
+            test_x.append(sent)
+            test_y.append(rev['y'])
+        else:
+            train_x.append(sent)
+            train_y.append(rev['y'])
+    
+    n_samples = len(train_x)
+    sidx = np.random.permutation(n_samples)
+    n_train = int(np.round(n_samples * (1. - valid_portion)))
+    
+    valid_x = [train_x[i] for i in sidx[n_train:]]
+    valid_y = [train_y[i] for i in sidx[n_train:]]
+
+    train_x = [train_x[i] for i in sidx[:n_train]]
+    train_y = [train_y[i] for i in sidx[:n_train]]     
+
+    print("Train: {0} - Valid: {1} - Test: {2}".format(len(train_x), len(valid_x), len(test_x)))
+    def len_sort(seq):
+        return sorted(range(len(seq)), key=lambda x: len(seq[x]))
+
+    if sort_by_len:
+        sorted_idx = len_sort(test_x)
+        test_x = [test_x[i] for i in sorted_idx]
+        test_set_y = [test_y[i] for i in sorted_idx]
+
+        sorted_idx = len_sort(valid_x)
+        valid_x = [valid_x[i] for i in sorted_idx]
+        valid_y = [valid_y[i] for i in sorted_idx]
+         
+        sorted_idx = len_sort(train_x)
+        train_x = [train_x[i] for i in sorted_idx]
+        train_y = [train_y[i] for i in sorted_idx]
+
+    train = train_x, train_y
+    valid = valid_x, valid_y
+    test = test_x, test_y
+
+    return train, valid, test
+
+
 def train_model(
+    revs, word_idx_map, max_l, pad,
+    valid_portion=0.1,
+    n_words=10000,
     dim_proj=128,  # word embeding dimension and LSTM number of hidden units.
-    patience=10,  # Number of epoch to wait before early stop if no progress
     max_epochs=100,  # The maximum number of epoch to run
-    dispFreq=500,  # Display to stdout the training progress every N updates
     decay_c=0.,  # Weight decay for the classifier applied to the U weights.
     lrate=0.0001,  # Learning rate for sgd (not used for adadelta and rmsprop)
-    n_words=10000,  # Vocabulary size
     optimizer='adadelta', 
     encoder='lstm', 
     rnnshare=True,
     bidir=False,
-    saveto=None,  # The best model will be saved there
-    validFreq=370,  # Compute the validation error after this number of update.
-    saveFreq=1110,  # Save the parameters after every saveFreq updates
-    maxlen=100,  # Sequence longer then this get ignored
     batch_size=16,  # The batch size during training.
     valid_batch_size=64,  # The batch size used for validation/test set.
-    dataset='imdb',
     W = None, # embeddings
     deep = 0, # number of layers above
     rnnlayer = 0, # number of rnn layers
@@ -100,30 +182,27 @@ def train_model(
     noise_std=0.,
     dropout_penul=0.5, 
     reload_model=None,  # Path to a saved model we want to start from.
-    data_loader=None,
     fname='',
 ):
-    
-
     # Model options
     optimizer = optims[optimizer]
     model_options = locals().copy()
-    #print "model options", model_options
 
+    prepare_data = lambda x, y: _prepare_data(x, y, max_l=max_l, pad=None)
+    load_data = lambda: _load_data(revs, word_idx_map, valid_portion=valid_portion)
 
-    # Load data
-    (load_data, prepare_data) = data_loader
+    train, valid, test = load_data()
 
-    print('Loading',dataset,'data')
-    train,valid,test = load_data()
-
-    ydim = numpy.max(train[1]) + 1
+    ydim = np.max(train[1]) + 1
     model_options['ydim'] = ydim
-
+    max_l = max_l + 2 * pad
+    model_options['max_l'] = max_l
+    print("max_l: {0} - pad: {1}".format(max_l, pad))
      
     print('Building model')
-    # This create the initial parameters as numpy ndarrays.
-    # Dict name (string) -> numpy ndarray
+    # This create the initial parameters as np ndarrays.
+    # Dict name (string) -> np ndarray
+
     params = init_params(model_options)
 
     if reload_model:
@@ -135,10 +214,10 @@ def train_model(
     tparams = init_tparams(params)
 
     # use_noise is for dropout
-    (use_noise, x, mask, y, f_pred_prob, f_pred, cost) = build_model(tparams, model_options,SEED)
+    (use_noise, x, mask, y, f_pred_prob, f_pred, cost) = build_model(tparams, model_options, SEED)
 
     if decay_c > 0.:
-        decay_c = theano.shared(numpy_floatX(decay_c), name='decay_c')
+        decay_c = theano.shared(np_floatX(decay_c), name='decay_c')
         weight_decay = 0.
 
         weight_decay += (tparams['U'] ** 2).sum()
@@ -154,8 +233,7 @@ def train_model(
         cost += weight_decay
 
     f_cost = theano.function([x, mask, y], cost, name='f_cost')
-
-    grads = tensor.grad(cost, wrt=tparams.values())
+    grads = tensor.grad(cost, wrt=list(tparams.values()))
     f_grad = theano.function([x, mask, y], grads, name='f_grad')
 
     lr = tensor.scalar(name='lr')
@@ -171,113 +249,46 @@ def train_model(
     print("%d test examples" % len(test[0]))
 
     history_errs = []
-    best_p = None
-    bad_count = 0
-
-    if validFreq == -1:
-        validFreq = len(train[0]) / batch_size
-    if saveFreq == -1:
-        saveFreq = len(train[0]) / batch_size
-
-    uidx = 0  # the number of update done
-    estop = False  # early stop
-    start_time = time.time()
+    history_times = [time()]
+    print("Start training...")
     try:
-        for eidx in xrange(max_epochs):
-            n_samples = 0
+        for eidx in range(max_epochs):
 
             # Get new shuffled index for the training set.
             kf = get_minibatches_idx(len(train[0]), batch_size, shuffle=True)
-
+            
             for _, train_index in kf:
-                uidx += 1
+
                 use_noise.set_value(1.)
 
                 # Select the random examples for this minibatch
-                y = [train[1][t] for t in train_index]
                 x = [train[0][t]for t in train_index]
-
-                # Get the data in numpy.ndarray format
+                y = [train[1][t] for t in train_index]
+                # Get the data in np.ndarray format
                 # This swap the axis!
                 # Return something of shape (minibatch maxlen, n samples)
                 x, mask, y = prepare_data(x, y)
-                n_samples += x.shape[1]
-
                 cost = f_grad_shared(x, mask, y)
                 f_update(lrate)
 
-                if numpy.isnan(cost) or numpy.isinf(cost):
+                if np.isnan(cost) or np.isinf(cost):
                     print('NaN detected')
                     return 1., 1., 1.
 
-                if numpy.mod(uidx, dispFreq) == 0:
-                    print('Epoch ', eidx, 'Update ', uidx, 'Cost ', cost)
+            use_noise.set_value(0.)
+            train_err = pred_error(f_pred, prepare_data, train, kf)
+            valid_err = pred_error(f_pred, prepare_data, valid, kf_valid)
+            test_err = pred_error(f_pred, prepare_data, test, kf_test)
+            history_errs.append((train_err, valid_err, test_err))
+            history_times.append(time())
 
-                if saveto and numpy.mod(uidx, saveFreq) == 0:
-                    print('Saving...')
-
-                    if best_p is not None:
-                        params = best_p
-                    else:
-                        params = unzip(tparams)
-                    numpy.savez(saveto, history_errs=history_errs, **params)
-                    pkl.dump(model_options, open('%s.pkl' % saveto, 'wb'), -1)
-                    print('Done')
-                
-                
-                if numpy.mod(uidx, validFreq) == 0:
-                    use_noise.set_value(0.)
-                    train_err = pred_error(f_pred, prepare_data, train, kf)
-                    valid_err = pred_error(f_pred, prepare_data, valid, kf_valid)
-                    test_err = pred_error(f_pred, prepare_data, test, kf_test)
-                    history_errs.append([valid_err, test_err])
-
-                    if (uidx == 0 or
-                        valid_err <= numpy.array(history_errs)[:,
-                                                               0].min()):
-
-                        best_p = unzip(tparams)
-                        bad_counter = 0
-
-                    print ('Train ', train_err, 'Valid ', valid_err,
-                           'Test ', test_err)
-
-                    if ((len(history_errs) > patience and
-                        valid_err >= numpy.array(history_errs)[:-patience,
-                                                               0].min())):
-                        bad_counter += 1
-                        
-                        if bad_counter > patience:
-                            print('Early Stop!')
-                            estop = True
-                            break
-
-            print('Seen %d samples' % n_samples)
-
-            if estop:
-                break
+            print('Epoch: {0} - Training time: {1} - Train err: {2} - Valid err: {3} - Test err: {4}'.format(eidx, history_times[-1] - history_times[-2], train_err, valid_err, test_err))
 
     except KeyboardInterrupt:
         print("Training interupted")
+        return history_errs
 
-    end_time = time.time()
-    if best_p is not None:
-        zipp(best_p, tparams)
-    else:
-        best_p = unzip(tparams)
-
-    use_noise.set_value(0.)
-    kf_train_sorted = get_minibatches_idx(len(train[0]), batch_size)
-    train_err = pred_error(f_pred, prepare_data, train, kf_train_sorted)
-    valid_err = pred_error(f_pred, prepare_data, valid, kf_valid)
-    test_err = pred_error(f_pred, prepare_data, test, kf_test, fname=fname, verbose=True)
-
-    print('Train Error', train_err, 'Valid Error', valid_err, 'Test Error', test_err)
-    if saveto:
-        numpy.savez(saveto, train_err=train_err,
-                    valid_err=valid_err, test_err=test_err,
-                    history_errs=history_errs, **best_p)
     print('The code run for %d epochs, with %f sec/epochs' % (
-        (eidx + 1), (end_time - start_time) / (1. * (eidx + 1))))
-    print('Training took %.1fs' % (end_time - start_time))
-    return train_err, valid_err, test_err
+        (eidx + 1), (history_times[-1] - history_times[0]) / (1. * (eidx + 1))))
+    print('Training took %.1fs' % (history_times[-1] - history_times[0]))
+    return history_errs

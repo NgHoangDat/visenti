@@ -260,7 +260,7 @@ def safe_update(dict_to, dict_from):
     """
     re-make update dictionary for safe updating
     """
-    for key, val in dict(dict_from).iteritems():
+    for key, val in dict(dict_from).items():
         if key in dict_to:
             raise KeyError(key)
         dict_to[key] = val
@@ -298,11 +298,11 @@ def make_idx_data_cv(revs, word_idx_map, cv, max_l=51, k=300, filter_h=5):
     test = np.array(test,dtype="int")
     return [train, test]
 
-def train(datafile, cv, non_static=True, rand_wv=True):
+def train(datafile, cv, non_static=True, we='rand'):
     print("loading data...")
     x = cPickle.load(open(datafile, 'rb'))
-    revs, W, rand_W, word_idx_map, vocab, max_l = x[0], x[1], x[2], x[3], x[4], x[5]
-    wv = W if not rand_wv else rand_W
+    revs, word_embeding, word_idx_map, vocab, max_l = x[0], x[1], x[2], x[3], x[4]
+    wv = word_embeding[we]
     dim = wv.shape[1]
     results = []
     for i in range(cv):
@@ -329,46 +329,9 @@ def train(datafile, cv, non_static=True, rand_wv=True):
 
 if __name__=="__main__":
     datafile = "G:/Desktop/visenti/data/data.p"
-    # print("loading data...")
-    # x = cPickle.load(open("G:/Desktop/visenti/data/en-all.p","rb"))
-    # revs, W, W2, word_idx_map, vocab = x[0], x[1], x[2], x[3], x[4]
-    # print("data loaded!")
     mode= sys.argv[1]
     word_vectors = sys.argv[2]
     non_static = sys.argv[1] == "-nonstatic"
     rand_wv = sys.argv[2] == "-rand"
     cv = 10
-    #if mode=="-nonstatic":
-    #    print("model architecture: CNN-non-static")
-    #    non_static=True
-    #elif mode=="-static":
-    #    print("model architecture: CNN-static")
-    #    non_static=False
-    #if word_vectors=="-rand":
-    #    print("using: random vectors")
-    #    U = W2
-    #elif word_vectors=="-word2vec":
-    #    print("using: word2vec vectors")
-    #    U = W
-    #results = []
-    #for i in range(10):
-    #    datasets = make_idx_data_cv(revs, word_idx_map, i, max_l=100, k=300, filter_h=7)
-    #    perf = train_conv_net(
-    #        datasets,
-    #        U,
-    #        img_w=300,
-    #        lr_decay=0.95,
-    #        filter_hs=[3,5,7],
-    #        conv_non_linear="relu",
-    #        hidden_units=[100,2], 
-    #        shuffle_batch=True, 
-    #        n_epochs=25, 
-    #        sqr_norm_lim=9,
-    #        non_static=non_static,
-    #        batch_size=50,
-    #        dropout_rate=[0.5]
-    #    )
-    #    print("cv: " + str(i) + ", perf: " + str(perf))
-    #    results.append(perf)
-    #print(str(np.mean(results)))
     train(datafile, cv, non_static, rand_wv)

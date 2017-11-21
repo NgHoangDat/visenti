@@ -2,7 +2,7 @@ from six.moves import cPickle as pkl
 import sys
 import argparse
 from train import train_model
-import trec
+
 
 if __name__ == '__main__':
     # Parse Arguments
@@ -11,8 +11,8 @@ if __name__ == '__main__':
         return v.lower() in ('true','1')
     parser.register('type','bool',str2bool)
 
-    parser.add_argument('-dataset', default='trec')
-    parser.add_argument('-We',    default='word2vecglove840b300d', help='Word Embedding')
+    parser.add_argument('-datapath', default='../data/data.p')
+    parser.add_argument('-We',    default='w2vgloverand', help='Word Embedding')
     parser.add_argument('-bidir',   type='bool', default=False, help='Bidirectional RNN')
     parser.add_argument('-rnnshare',type='bool', default=False, help='')
     parser.add_argument('-rnnlayer',type=int, default=1)
@@ -27,68 +27,56 @@ if __name__ == '__main__':
     parser.add_argument('-feature_maps', type=int, default=100)
     parser.add_argument('-rm_unk',type='bool', default=False, help='')
     parser.add_argument('-validportion', type=float, default=0.15)
-    parser.add_argument('-batchsize', type=int, default=8)
+    parser.add_argument('-batchsize', type=int, default=100)
     parser.add_argument('-init',  default='uniform')
     parser.add_argument('-salstm',type='bool', default=False, help='')
+    parser.add_argument('-max_epochs', type=int, default=10)
     args = vars(parser.parse_args())
-    print(args)
-
-    dataset = args['dataset']
-
+    #print(args)
+    
     filter_hs = [int(h) for h in list(args['filter_hs'])]
     pad = max(filter_hs) - 1
 
-    datasets={}
-    if dataset == 'trec':
-        data_path = '../data/trec/trec.p'
-        x = pkl.load(open(data_path,"rb"))
-        revs, W, W2, W3, word_idx_map, vocab = x[0],x[1],x[2],x[3],x[4],x[5]
+    x = pkl.load(open(args['datapath'],"rb"))
+    revs, word_embeding, word_idx_map, vocab, max_l = x[0], x[1], x[2], x[3], x[4]
 
-        Ws = []
-        if 'word2vec' in args['We']:
-            print('loading word2vec...')
-            We = W
-            Ws.append(We)
+    Ws = []
+    if 'w2v' in args['We']:
+        print('loading word2vec...')
+        Ws.append(word_embeding['w2v'])
 
-        if 'random' in args['We']:
-            print('loading random...')
-            We = W2
-            Ws.append(We)
+    if 'rand' in args['We']:
+        print('loading random...')
+        Ws.append(word_embeding['rand'])
 
-        if 'glove840b300d' in args['We']:
-            print('loading glove840b300d...')
-            We = W3
-            Ws.append(We)
+    if 'glove' in args['We']:
+        print('loading glove...')
+        Ws.append(word_embeding['glove'])
 
-        vocab_size,k = Ws[0].shape
-        vocab_size -=1
-  
-        maxlen = 37
-
-	datasets['trec'] = (
-        lambda: trec.load_data(revs,word_idx_map,valid_portion=args['validportion']),
-        lambda x,y: trec.prepare_data(x,y,maxlen=maxlen,pad=pad)
-    )
-
-    data_loader = datasets[dataset]
+    vocab_size, dim = Ws[0].shape
+    vocab_size -=1
+	
     perf = train_model(
-        dim_proj = k,
+        revs=revs,
+        word_idx_map=word_idx_map,
+        max_l=max_l,
+        pad=pad,
+        valid_portion = args['validportion'],
+        max_epochs=100,
+        dim_proj = dim,
         decay_c = args['decay_c'],
         n_words = vocab_size,
-        dataset = dataset,
         W = Ws,
         encoder = args['encoder'],
         batch_size = args['batchsize'],
         deep = args['deep'],
         rnnlayer = args['rnnlayer'],
         filter_hs = filter_hs,
-        maxlen=maxlen + 2 * pad,
         dropout_penul = args['dropout_penul'],
         pool_type = args['pool_type'],
         combine = args['combine'],
         feature_maps = args['feature_maps'],
         init = args['init'],
-        data_loader = data_loader,
         optimizer = args['optim'],
         rnnshare = args['rnnshare'],
         bidir = args['bidir'],
