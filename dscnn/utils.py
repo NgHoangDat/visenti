@@ -34,7 +34,7 @@ def get_minibatches_idx(n, minibatch_size, shuffle=False):
         # Make a minibatch out of what is left
         minibatches.append(idx_list[minibatch_start:])
 
-    return zip(range(len(minibatches)), minibatches)
+    return list(zip(range(len(minibatches)), minibatches))
 
 
 def zipp(params, tparams):

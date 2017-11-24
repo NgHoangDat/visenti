@@ -14,7 +14,7 @@ from utils import np_floatX, get_minibatches_idx, load_params, init_tparams, unz
 SEED = 123
 np.random.seed(SEED)
 
-def pred_probs(f_pred_prob, prepare_data, data, iterator, verbose=False):
+def pred_probs(f_pred_prob, prepare_data, data, iterator):
     """ If you want to use a trained model, this is useful to compute
     the probabilities of new examples.
     """
@@ -30,42 +30,25 @@ def pred_probs(f_pred_prob, prepare_data, data, iterator, verbose=False):
         probs[valid_index, :] = pred_probs
 
         n_done += len(valid_index)
-        if verbose:
-            print('%d/%d samples classified' % (n_done, n_samples))
 
     return probs
 
-def pred_error(f_pred, prepare_data, data, iterator, fname='', verbose=False):
+def pred_perf(f_pred, prepare_data, data, iterator):
     """
     Just compute the error
     f_pred: Theano fct computing the prediction
     prepare_data: usual prepare_data for that dataset.
     """
     valid_err = 0
-    if verbose:
-        f = open('../data/trec/TREC_10.label')
-        lines = f.readlines()
-        f.close()
-        f_out = open(fname+'trec_out_dscnn.txt','w')
-        cat_ind = ['ABBR','ENTY','DESC','HUM','LOC','NUM']
-        cnt = 0
+    tp, fp, tn, fn = 0, 0, 0, 0
     for b, valid_index in iterator:
-        x ,mask,y = prepare_data([data[0][t] for t in valid_index],
+        x ,mask, y = prepare_data([data[0][t] for t in valid_index],
                                   np.array(data[1])[valid_index])
         preds = f_pred(x, mask)
-        targets = np.array(data[1])[valid_index]
-        
-        
-        if verbose:
-            for i in range(len(preds)):
-                p = preds[i]
-                if p != targets[i]:
-                    f_out.write('*')
-                f_out.write(cat_ind[p] + ' ')
-                f_out.write(lines[cnt])
-                cnt += 1       
-        
-        valid_err += (preds == targets).sum()
+        #targets = np.array(data[1])[valid_index]
+        #valid_err += (preds == targets).sum()
+        valid_err += (preds == y).sum()
+    
     valid_err = 1. - np_floatX(valid_err) / len(data[0])
 
     return valid_err * 100
@@ -104,6 +87,7 @@ def _prepare_data(seqs , labels , max_l=None, pad=None):
             x[:lengths[idx], idx] = s
             x_mask[:lengths[idx], idx] = 1.
 
+    labels = np.asarray(labels).astype(int)
     return x, x_mask, labels
 
 
@@ -132,7 +116,7 @@ def _load_data(revs, word_idx_map, fold=1, sort_by_len=True, valid_portion=0.1):
     train_x = [train_x[i] for i in sidx[:n_train]]
     train_y = [train_y[i] for i in sidx[:n_train]]     
 
-    print("Train: {0} - Valid: {1} - Test: {2}".format(len(train_x), len(valid_x), len(test_x)))
+    print("train: {0} - valid: {1} - test: {2}".format(len(train_x), len(valid_x), len(test_x)))
     def len_sort(seq):
         return sorted(range(len(seq)), key=lambda x: len(seq[x]))
 
@@ -163,7 +147,7 @@ def train_model(
     dim_proj=128,  # word embeding dimension and LSTM number of hidden units.
     max_epochs=100,  # The maximum number of epoch to run
     decay_c=0.,  # Weight decay for the classifier applied to the U weights.
-    lrate=0.0001,  # Learning rate for sgd (not used for adadelta and rmsprop)
+    lrate=0.01,  # Learning rate for sgd (not used for adadelta and rmsprop)
     optimizer='adadelta', 
     encoder='lstm', 
     rnnshare=True,
@@ -199,7 +183,7 @@ def train_model(
     model_options['max_l'] = max_l
     print("max_l: {0} - pad: {1}".format(max_l, pad))
      
-    print('Building model')
+    print('building model...')
     # This create the initial parameters as np ndarrays.
     # Dict name (string) -> np ndarray
 
@@ -238,26 +222,20 @@ def train_model(
 
     lr = tensor.scalar(name='lr')
     f_grad_shared, f_update = optimizer(lr, tparams, grads, x, mask, y, cost)
-
-    print('Optimization')
-
+    
     kf_valid = get_minibatches_idx(len(valid[0]), valid_batch_size)
     kf_test = get_minibatches_idx(len(test[0]), valid_batch_size)
-
-    print("%d train examples" % len(train[0]))
-    print("%d valid examples" % len(valid[0]))
-    print("%d test examples" % len(test[0]))
-
+    
     history_errs = []
     history_times = [time()]
-    print("Start training...")
+    print("start training...")
     try:
         for eidx in range(max_epochs):
 
             # Get new shuffled index for the training set.
-            kf = get_minibatches_idx(len(train[0]), batch_size, shuffle=True)
-            
-            for _, train_index in kf:
+            kf_train = get_minibatches_idx(len(train[0]), batch_size, shuffle=True)
+
+            for _, train_index in kf_train:
 
                 use_noise.set_value(1.)
 
@@ -276,13 +254,15 @@ def train_model(
                     return 1., 1., 1.
 
             use_noise.set_value(0.)
-            train_err = pred_error(f_pred, prepare_data, train, kf)
-            valid_err = pred_error(f_pred, prepare_data, valid, kf_valid)
-            test_err = pred_error(f_pred, prepare_data, test, kf_test)
+
+            train_err = pred_perf(f_pred, prepare_data, train, kf_train)
+            valid_err = pred_perf(f_pred, prepare_data, valid, kf_valid)
+            test_err = pred_perf(f_pred, prepare_data, test, kf_test)
+            
             history_errs.append((train_err, valid_err, test_err))
             history_times.append(time())
 
-            print('Epoch: {0} - Training time: {1} - Train err: {2} - Valid err: {3} - Test err: {4}'.format(eidx, history_times[-1] - history_times[-2], train_err, valid_err, test_err))
+            print('epoch: {0} - training time: {1} - train err: {2} - valid err: {3} - test err: {4}'.format(eidx, history_times[-1] - history_times[-2], train_err, valid_err, test_err))
 
     except KeyboardInterrupt:
         print("Training interupted")

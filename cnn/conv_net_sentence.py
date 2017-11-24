@@ -35,20 +35,23 @@ def Tanh(x):
 def Iden(x):
     return x
        
-def train_conv_net(datasets,
-                   U,
-                   img_w=300, 
-                   filter_hs=[3,4,5],
-                   hidden_units=[100,2], 
-                   dropout_rate=[0.5],
-                   shuffle_batch=True,
-                   n_epochs=25, 
-                   batch_size=50, 
-                   lr_decay = 0.95,
-                   conv_non_linear="relu",
-                   activations=[Iden],
-                   sqr_norm_lim=9,
-                   non_static=True):
+def train_conv_net(
+    datasets,
+    U,
+    img_w=300, 
+    filter_hs=[3,4,5],
+    hidden_units=[100,2], 
+    dropout_rate=[0.5],
+    shuffle_batch=True,
+    n_epochs=25, 
+    batch_size=50, 
+    lr_decay = 0.95,
+    conv_non_linear="relu",
+    activations=[Iden],
+    sqr_norm_lim=9,
+    non_static=True,
+    show_params=True
+):
     """
     Train a simple conv net
     img_h = sentence length (padded where necessary)
@@ -67,21 +70,22 @@ def train_conv_net(datasets,
     for filter_h in filter_hs:
         filter_shapes.append((feature_maps, 1, filter_h, filter_w))
         pool_sizes.append((img_h-filter_h+1, img_w-filter_w+1))
-    parameters = [
-        ("image shape",img_h,img_w),
-        ("filter shape",filter_shapes),
-        ("hidden_units",hidden_units),
-        ("dropout", dropout_rate),
-        ("batch_size",batch_size),
-        ("non_static", non_static),
-        ("learn_decay",lr_decay),
-        ("conv_non_linear", conv_non_linear),
-        ("non_static", non_static),
-        ("sqr_norm_lim",sqr_norm_lim),
-        ("shuffle_batch",shuffle_batch)
-    ]
-    for p in parameters:
-        print("{0} : {1}".format(p[0], p[1]))
+    if show_params:
+        parameters = [
+            ("image shape",img_h,img_w),
+            ("filter shape",filter_shapes),
+            ("hidden_units",hidden_units),
+            ("dropout", dropout_rate),
+            ("batch_size",batch_size),
+            ("non_static", non_static),
+            ("learn_decay",lr_decay),
+            ("conv_non_linear", conv_non_linear),
+            ("non_static", non_static),
+            ("sqr_norm_lim",sqr_norm_lim),
+            ("shuffle_batch",shuffle_batch)
+        ]
+        for p in parameters:
+            print("{0} : {1}".format(p[0], p[1]))
     
     #define model architecture
     index = T.lscalar()
@@ -131,13 +135,14 @@ def train_conv_net(datasets,
     else:
         new_data = datasets[0]
     new_data = np.random.permutation(new_data)
-    n_batches = new_data.shape[0]/batch_size
-    n_train_batches = int(np.round(n_batches*0.9))
+    n_batches = new_data.shape[0] / batch_size
+    n_train_batches = int(np.round(n_batches * 0.9))
+    n_train_batches = n_train_batches if n_train_batches < n_batches else n_train_batches - 1
     #divide train set into train/val sets 
     test_set_x = datasets[1][:,:img_h] 
     test_set_y = np.asarray(datasets[1][:,-1],"int32")
-    train_set = new_data[:n_train_batches*batch_size,:]
-    val_set = new_data[n_train_batches*batch_size:,:]
+    train_set = new_data[:n_train_batches * batch_size, :]
+    val_set = new_data[n_train_batches * batch_size: , :]
     train_set_x, train_set_y = shared_dataset((train_set[:,:img_h],train_set[:,-1]))
     val_set_x, val_set_y = shared_dataset((val_set[:,:img_h],val_set[:,-1]))
     n_val_batches = n_batches - n_train_batches
@@ -296,9 +301,10 @@ def make_idx_data_cv(revs, word_idx_map, cv, max_l=51, k=300, filter_h=5):
             train.append(sent)
     train = np.array(train,dtype="int")
     test = np.array(test,dtype="int")
-    return [train, test]
+    print("train: {0} - valid: {1}".format(len(train), len(test)))
+    return train, test
 
-def train(datafile, cv, non_static=True, we='rand'):
+def train(datafile, cv, non_static=True, we='rand', batch_size=50):
     print("loading data...")
     x = cPickle.load(open(datafile, 'rb'))
     revs, word_embeding, word_idx_map, vocab, max_l = x[0], x[1], x[2], x[3], x[4]
@@ -320,7 +326,8 @@ def train(datafile, cv, non_static=True, we='rand'):
             sqr_norm_lim=9,
             non_static=non_static,
             batch_size=50,
-            dropout_rate=[0.5]
+            dropout_rate=[0.5],
+            show_params= i == 0
         )
         print("cv: " + str(i) + ", perf: " + str(perf))
         results.append(perf)

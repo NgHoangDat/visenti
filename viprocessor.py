@@ -20,18 +20,18 @@ def separate_sentence(paragraph: str):
 
 
 def tokenize(sentence: str):
-    return ViTokenizer.tokenize(input)
+    return ViTokenizer.tokenize(sentence)
 
 
 def remove_punctuation(text: str):
     return " ".join([w for w in text.split() if w not in set(string.punctuation)])
 
 
-def read_file(data_folder: list):
+def read_file(data_folder: list, limit=None):
     revs = []
     for i in range(len(data_folder)):
         with open(data_folder[i], 'r', encoding='utf-8') as f:
-            revs += [(rev.split(), i) for rev in f.readlines()]
+            revs += [(rev.split(), i) for rev in f.readlines()[0:limit]]
     return revs
 
 
@@ -86,6 +86,21 @@ def clean_str(string):
     return string.strip()
 
 
+def normalize(text: str):
+    for punc in set(string.punctuation):
+        text = re.sub(re.escape(punc), " " + punc + " ", text)
+    return re.sub("\s+", " ", text).strip()
+
+
+def process_vi(text, lowered=True, tokenized=True, punctuation_removed=True, cleaned=True):
+    text = normalize(text)
+    text = text.lower() if lowered else text
+    text = tokenize(text) if tokenized else text
+    text = remove_punctuation(text) if punctuation_removed else text
+    text = clean_str(text) if cleaned else text
+    return text
+
+
 def build_data_cv(revs, cv=10, lowered=True, tokenized=True, punctuation_removed=True, cleaned=True):
     count = defaultdict(int)
     max_l = 0
@@ -95,9 +110,10 @@ def build_data_cv(revs, cv=10, lowered=True, tokenized=True, punctuation_removed
         rev, label = r
         rev = " ".join(rev)
 
-        rev = remove_punctuation(rev) if punctuation_removed else rev
+        rev = normalize(rev)
         rev = rev.lower() if lowered else rev
         rev = tokenize(rev) if tokenized else rev
+        rev = remove_punctuation(rev) if punctuation_removed else rev
         rev = clean_str(rev) if cleaned else rev
 
         words = set(rev.split())
@@ -107,7 +123,6 @@ def build_data_cv(revs, cv=10, lowered=True, tokenized=True, punctuation_removed
         num_words = len(rev.split())
         max_l = num_words if max_l < num_words else max_l
         count[str(label)] += 1
-
         out_revs.append({
             "y": label,
             "text": rev,
@@ -117,16 +132,16 @@ def build_data_cv(revs, cv=10, lowered=True, tokenized=True, punctuation_removed
     return out_revs, vocab, max_l, count
 
 
-def build_dataset(data_folder, we_folder, dim=300, cv=10):
+def build_dataset(data_folder, we_folder, dim=300, cv=10, limit=None, vi=False):
     print("loading data...")
-    origin_revs = read_file(data_folder)
-        
+    origin_revs = read_file(data_folder, limit)
+    
     revs, vocab, max_l, count = build_data_cv(
         origin_revs,
         cv=cv,
         lowered=True,
-        tokenized=False,
-        punctuation_removed=False,
+        tokenized=vi,
+        punctuation_removed=vi,
         cleaned=True
     )
     print("data loaded!")
@@ -155,7 +170,6 @@ def build_dataset(data_folder, we_folder, dim=300, cv=10):
     
     print("loading glove...")
     wv = {}
-    print(we_folder)
     with open(we_folder + 'glove' + str(dim), 'r', encoding='utf-8') as f:
         for line in f.readlines():
             line = line.split()
@@ -170,11 +184,13 @@ def build_dataset(data_folder, we_folder, dim=300, cv=10):
 
 if __name__=="__main__":  
     data_folder = [
-        "./data/en-neg",
-        "./data/en-pos"
+        "./data/bphone/neg",
+        "./data/bphone/pos"
     ]
-    we_folder = './data/'
-    save_file = "./data/data.p"
+    we_folder = './data/bphone/'
+    save_file = "./data/bphone/data.p"
     dim = 300
-    cv = 10
-    cPickle.dump(build_dataset(data_folder, we_folder, dim, cv), open(save_file, "wb"))
+    cv = 5
+    limit = 80
+    vi = True
+    cPickle.dump(build_dataset(data_folder, we_folder, dim, cv, limit), open(save_file, "wb"))
