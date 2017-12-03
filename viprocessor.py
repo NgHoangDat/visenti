@@ -2,13 +2,12 @@ import re
 import os
 import string
 from collections import defaultdict
-import sys
 from six.moves import cPickle
 
 import numpy as np
-import pandas as pd
 from nltk.data import load
 from pyvi.pyvi import ViTokenizer
+# from underthesea import word_sent
 from gensim.models import Word2Vec
 
 VN_SENT_MODEL = 'file:' + os.path.join(os.path.abspath(os.path.dirname(__file__)), 'vietnamese.pickle')
@@ -21,6 +20,7 @@ def separate_sentence(paragraph: str):
 
 def tokenize(sentence: str):
     return ViTokenizer.tokenize(sentence)
+    # return word_sent(sentence, format='text')
 
 
 def remove_punctuation(text: str):
@@ -45,7 +45,7 @@ def create_word_idx_map(vocab: list):
     word_idx_map = dict()
     for w in vocab:
         word_idx_map[w] = i
-        i += 1 
+        i += 1
     return word_idx_map
 
 
@@ -95,8 +95,8 @@ def normalize(text: str):
 def process_vi(text, lowered=True, tokenized=True, punctuation_removed=True, cleaned=True):
     text = normalize(text)
     text = text.lower() if lowered else text
-    text = tokenize(text) if tokenized else text
     text = remove_punctuation(text) if punctuation_removed else text
+    text = tokenize(text) if tokenized else text
     text = clean_str(text) if cleaned else text
     return text
 
@@ -110,11 +110,7 @@ def build_data_cv(revs, cv=10, lowered=True, tokenized=True, punctuation_removed
         rev, label = r
         rev = " ".join(rev)
 
-        rev = normalize(rev)
-        rev = rev.lower() if lowered else rev
-        rev = tokenize(rev) if tokenized else rev
-        rev = remove_punctuation(rev) if punctuation_removed else rev
-        rev = clean_str(rev) if cleaned else rev
+        rev = process_vi(rev, lowered, tokenized, punctuation_removed, cleaned)
 
         words = set(rev.split())
         for w in words:

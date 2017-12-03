@@ -16,18 +16,22 @@ import theano.tensor as T
 from theano.tensor.signal import pool
 from theano.tensor.nnet import conv
 
+
 def ReLU(x):
-    y = T.maximum(0.0, x)
-    return(y)
+    return T.maximum(0.0, x)
+
+
 def Sigmoid(x):
-    y = T.nnet.sigmoid(x)
-    return(y)
+    return T.nnet.sigmoid(x)
+
+
 def Tanh(x):
-    y = T.tanh(x)
-    return(y)
+    return T.tanh(x)
+
+
 def Iden(x):
-    y = x
-    return(y)
+    return x
+
         
 class HiddenLayer(object):
     """

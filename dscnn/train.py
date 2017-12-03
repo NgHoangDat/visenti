@@ -1,18 +1,19 @@
-import sys
 from time import time
+from datetime import datetime
+
 import numpy as np
 import theano
 from theano import config
 import theano.tensor as tensor
 
-from six.moves import cPickle as pkl
 from models import init_params, build_model
 from optimizers import optims
-from utils import np_floatX, get_minibatches_idx, load_params, init_tparams, unzip, zipp
+from utils import np_floatX, get_minibatches_idx, load_params, init_tparams
 
 # Set the random number generators' seeds for consistency
 SEED = 123
 np.random.seed(SEED)
+
 
 def pred_probs(f_pred_prob, prepare_data, data, iterator):
     """ If you want to use a trained model, this is useful to compute
@@ -33,6 +34,7 @@ def pred_probs(f_pred_prob, prepare_data, data, iterator):
 
     return probs
 
+
 def pred_perf(f_pred, prepare_data, data, iterator):
     """
     Just compute the error
@@ -40,25 +42,25 @@ def pred_perf(f_pred, prepare_data, data, iterator):
     prepare_data: usual prepare_data for that dataset.
     """
     valid_err = 0
-    tp, fp, tn, fn = 0, 0, 0, 0
+    #tp, fp, tn, fn = 0, 0, 0, 0
     for b, valid_index in iterator:
-        x ,mask, y = prepare_data([data[0][t] for t in valid_index],
+        x, mask, y = prepare_data([data[0][t] for t in valid_index],
                                   np.array(data[1])[valid_index])
         preds = f_pred(x, mask)
         #targets = np.array(data[1])[valid_index]
         #valid_err += (preds == targets).sum()
         valid_err += (preds == y).sum()
-    
+
     valid_err = 1. - np_floatX(valid_err) / len(data[0])
 
     return valid_err * 100
 
 
-def _prepare_data(seqs , labels , max_l=None, pad=None):
-    
+def _prepare_data(seqs, labels, max_l=None, pad=None):
+
     if not len(seqs):
         return None, None, None
-    
+
     lengths = [len(s) for s in seqs]
     if max_l:
         n_seqs = []
@@ -72,7 +74,7 @@ def _prepare_data(seqs , labels , max_l=None, pad=None):
         lengths = n_lens
         labels = n_labels
         seqs = n_seqs
-    
+
     if pad:
         max_l = max_l + 2 * pad
         x = np.zeros((max_l, len(seqs))).astype('int64')
@@ -91,80 +93,82 @@ def _prepare_data(seqs , labels , max_l=None, pad=None):
     return x, x_mask, labels
 
 
-def _load_data(revs, word_idx_map, fold=1, sort_by_len=True, valid_portion=0.1):
+def _load_data(revs, word_idx_map, sort_by_len=True, valid_portion=0.1):
     train_x, train_y = [], []
     valid_x, valid_y = [], []
-    test_x, test_y = [], []
+    #test_x, test_y = [], []
 
     for rev in revs:
         sent = [word_idx_map[w] for w in rev['text'].split() if w in word_idx_map]
+        train_x.append(sent)
+        train_y.append(rev['y'])
+        #if rev['split'] == fold:
+        #    test_x.append(sent)
+        #    test_y.append(rev['y'])
+        #else:
+        #    train_x.append(sent)
+        #    train_y.append(rev['y'])
 
-        if rev['split'] == fold:
-            test_x.append(sent)
-            test_y.append(rev['y'])
-        else:
-            train_x.append(sent)
-            train_y.append(rev['y'])
-    
     n_samples = len(train_x)
     sidx = np.random.permutation(n_samples)
     n_train = int(np.round(n_samples * (1. - valid_portion)))
-    
+
     valid_x = [train_x[i] for i in sidx[n_train:]]
     valid_y = [train_y[i] for i in sidx[n_train:]]
 
     train_x = [train_x[i] for i in sidx[:n_train]]
-    train_y = [train_y[i] for i in sidx[:n_train]]     
+    train_y = [train_y[i] for i in sidx[:n_train]]
 
-    print("train: {0} - valid: {1} - test: {2}".format(len(train_x), len(valid_x), len(test_x)))
+    print("train: {0} - valid: {1}".format(len(train_x), len(valid_x)))
+
     def len_sort(seq):
         return sorted(range(len(seq)), key=lambda x: len(seq[x]))
 
     if sort_by_len:
-        sorted_idx = len_sort(test_x)
-        test_x = [test_x[i] for i in sorted_idx]
-        test_set_y = [test_y[i] for i in sorted_idx]
+        #sorted_idx = len_sort(test_x)
+        #test_x = [test_x[i] for i in sorted_idx]
+        #test_y = [test_y[i] for i in sorted_idx]
 
         sorted_idx = len_sort(valid_x)
         valid_x = [valid_x[i] for i in sorted_idx]
         valid_y = [valid_y[i] for i in sorted_idx]
-         
+
         sorted_idx = len_sort(train_x)
         train_x = [train_x[i] for i in sorted_idx]
         train_y = [train_y[i] for i in sorted_idx]
 
     train = train_x, train_y
     valid = valid_x, valid_y
-    test = test_x, test_y
+    #test = test_x, test_y
 
-    return train, valid, test
+    return train, valid
 
 
 def train_model(
-    revs, word_idx_map, max_l, pad,
+    revs, word_idx_map, max_l, pad, report_to,
     valid_portion=0.1,
     n_words=10000,
     dim_proj=128,  # word embeding dimension and LSTM number of hidden units.
     max_epochs=100,  # The maximum number of epoch to run
     decay_c=0.,  # Weight decay for the classifier applied to the U weights.
     lrate=0.01,  # Learning rate for sgd (not used for adadelta and rmsprop)
-    optimizer='adadelta', 
-    encoder='lstm', 
+    optimizer='adadelta',
+    encoder='lstm',
     rnnshare=True,
     bidir=False,
     batch_size=16,  # The batch size during training.
     valid_batch_size=64,  # The batch size used for validation/test set.
-    W = None, # embeddings
-    deep = 0, # number of layers above
-    rnnlayer = 0, # number of rnn layers
-    filter_hs = [3,4,5], #filter's width
-    feature_maps = 100,  #number of filters
-    pool_type = 'max',    #pooling type
-    combine = False,
+    W=None,  # embeddings
+    deep=0,  # number of layers above
+    rnnlayer=0,  # number of rnn layers
+    filter_hs=[3, 4, 5],  # filter's width
+    feature_maps=100,   # number of filters
+    pool_type='max',  # pooling type
+    combine=False,
     init='uniform',
     salstm=False,
     noise_std=0.,
-    dropout_penul=0.5, 
+    dropout_penul=0.5,
     reload_model=None,  # Path to a saved model we want to start from.
     fname='',
 ):
@@ -175,14 +179,14 @@ def train_model(
     prepare_data = lambda x, y: _prepare_data(x, y, max_l=max_l, pad=None)
     load_data = lambda: _load_data(revs, word_idx_map, valid_portion=valid_portion)
 
-    train, valid, test = load_data()
+    train, valid = load_data()
 
     ydim = np.max(train[1]) + 1
     model_options['ydim'] = ydim
     max_l = max_l + 2 * pad
     model_options['max_l'] = max_l
     print("max_l: {0} - pad: {1}".format(max_l, pad))
-     
+
     print('building model...')
     # This create the initial parameters as np ndarrays.
     # Dict name (string) -> np ndarray
@@ -208,11 +212,11 @@ def train_model(
 
         if model_options['encoder'] == 'lstm':
             for layer in range(model_options['deep']):
-                weight_decay += (tparams['U'+str(layer+1)] ** 2).sum()
+                weight_decay += (tparams['U' + str(layer + 1)] ** 2).sum()
         elif model_options['encoder'] == 'cnnlstm':
             for filter_h in model_options['filter_hs']:
-                weight_decay += (tparams['cnn_f'+str(filter_h)] ** 2).sum()
-        
+                weight_decay += (tparams['cnn_f' + str(filter_h)] ** 2).sum()
+
         weight_decay *= decay_c
         cost += weight_decay
 
@@ -222,47 +226,51 @@ def train_model(
 
     lr = tensor.scalar(name='lr')
     f_grad_shared, f_update = optimizer(lr, tparams, grads, x, mask, y, cost)
-    
+
     kf_valid = get_minibatches_idx(len(valid[0]), valid_batch_size)
-    kf_test = get_minibatches_idx(len(test[0]), valid_batch_size)
-    
+    #kf_test = get_minibatches_idx(len(test[0]), valid_batch_size)
+
     history_errs = []
     history_times = [time()]
     print("start training...")
     try:
-        for eidx in range(max_epochs):
+        with open(report_to, 'a') as report:
+            report.write("\n")
+            report.write(datetime.now().strftime("%y-%m-%d %H-%M-%S"))
+            report.write("\nepoch\ttraining_time\ttrain_perf\tval_perf\n")
+            print("\nepoch\ttraining_time\ttrain_perf\tval_perf")
+            for eidx in range(max_epochs):
 
             # Get new shuffled index for the training set.
-            kf_train = get_minibatches_idx(len(train[0]), batch_size, shuffle=True)
+                kf_train = get_minibatches_idx(len(train[0]), batch_size, shuffle=True)
 
-            for _, train_index in kf_train:
+                for _, train_index in kf_train:
 
-                use_noise.set_value(1.)
+                    use_noise.set_value(1.)
 
-                # Select the random examples for this minibatch
-                x = [train[0][t]for t in train_index]
-                y = [train[1][t] for t in train_index]
-                # Get the data in np.ndarray format
-                # This swap the axis!
-                # Return something of shape (minibatch maxlen, n samples)
-                x, mask, y = prepare_data(x, y)
-                cost = f_grad_shared(x, mask, y)
-                f_update(lrate)
+                    # Select the random examples for this minibatch
+                    x = [train[0][t]for t in train_index]
+                    y = [train[1][t] for t in train_index]
+                    # Get the data in np.ndarray format
+                    # This swap the axis!
+                    # Return something of shape (minibatch maxlen, n samples)
+                    x, mask, y = prepare_data(x, y)
+                    cost = f_grad_shared(x, mask, y)
+                    f_update(lrate)
 
-                if np.isnan(cost) or np.isinf(cost):
-                    print('NaN detected')
-                    return 1., 1., 1.
+                    if np.isnan(cost) or np.isinf(cost):
+                        print('NaN detected')
+                        return 1., 1., 1.
 
-            use_noise.set_value(0.)
+                use_noise.set_value(0.)
 
-            train_err = pred_perf(f_pred, prepare_data, train, kf_train)
-            valid_err = pred_perf(f_pred, prepare_data, valid, kf_valid)
-            test_err = pred_perf(f_pred, prepare_data, test, kf_test)
-            
-            history_errs.append((train_err, valid_err, test_err))
-            history_times.append(time())
+                train_err = pred_perf(f_pred, prepare_data, train, kf_train)
+                valid_err = pred_perf(f_pred, prepare_data, valid, kf_valid)
 
-            print('epoch: {0} - training time: {1} - train err: {2} - valid err: {3} - test err: {4}'.format(eidx, history_times[-1] - history_times[-2], train_err, valid_err, test_err))
+                history_errs.append((train_err, valid_err))
+                history_times.append(time())
+                print('{0}\t{1}\t{2}\t{3}'.format(eidx, history_times[-1] - history_times[-2], train_err, valid_err))
+                report.write('\n{0}\t{1}\t{2}\t{3}'.format(eidx, history_times[-1] - history_times[-2], train_err, valid_err))
 
     except KeyboardInterrupt:
         print("Training interupted")

@@ -2,7 +2,6 @@ import numpy as np
 import theano
 from theano import config
 import theano.tensor as tensor
-from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 from theano.tensor.signal import pool
 from theano.tensor.nnet import conv
 

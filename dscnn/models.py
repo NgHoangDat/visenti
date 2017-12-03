@@ -1,4 +1,3 @@
-import sys
 from collections import OrderedDict
 import numpy as np
 
@@ -7,7 +6,7 @@ from theano import config
 import theano.tensor as tensor
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
-from layers import layers, get_layer, dropout_layer
+from layers import get_layer, dropout_layer
 from utils import np_floatX
 
 def init_params(options):
