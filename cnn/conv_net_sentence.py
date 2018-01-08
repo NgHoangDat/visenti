@@ -272,32 +272,32 @@ def get_idx_from_sent(sent, word_idx_map, max_l=51, k=300, filter_h=5):
         x.append(0)
     return x
 
-def make_idx_data_cv(revs, word_idx_map, cv, max_l=51, k=300, filter_h=5):
+def make_idx_data_cv(revs, word_idx_map, valid_fold, max_l=51, k=300, filter_h=5):
     """
     Transforms sentences into a 2-d matrix.
     """
-    train, test = [], []
+    train, valid = [], []
     for rev in revs:
         sent = get_idx_from_sent(rev["text"], word_idx_map, max_l, k, filter_h)
         sent.append(rev["y"])
-        if rev["split"] == cv:
-            test.append(sent)
+        if rev["split"] == valid_fold:
+            valid.append(sent)
         else:
             train.append(sent)
-    train = np.array(train,dtype="int")
-    test = np.array(test,dtype="int")
-    print("train: {0} - valid: {1}".format(len(train), len(test)))
-    return train, test
+    train = np.array(train, dtype="int")
+    valid = np.array(valid, dtype="int")
+    print("train: {0} - valid: {1}".format(len(train), len(valid)))
+    return train, valid
 
 def train(
-    datafile, cv, report_file,
+    data_file, valid_fold, report_file,
     non_static=True, we='rand', n_epochs=25,
     batch_size=50, shuffle_batch=True,
-    filter_hs=[3, 5, 7], hidden_units=[100, 2],
+    filter_hs=[3, 4, 5], hidden_units=[10, 2],
     lr_decay=0.95, dropout_rate=[0.5]
 ):
     print("loading data...")
-    x = cPickle.load(open(datafile, 'rb'))
+    x = cPickle.load(open(data_file, 'rb'))
     revs, word_embeding, word_idx_map, max_l = x[0], x[1], x[2], x[4]
     wv = word_embeding[we]
     dim = wv.shape[1]
@@ -315,7 +315,7 @@ def train(
 
         report.write("epoch\ttraining_time\ttrain_perf\tval_perf\n")
         report.write("\n")
-        datasets = make_idx_data_cv(revs, word_idx_map, np.random.randint(0, cv), max_l=max_l, k=dim, filter_h=7)
+        datasets = make_idx_data_cv(revs, word_idx_map, valid_fold, max_l=max_l, k=dim, filter_h=max(filter_hs))
         perf = train_conv_net(
             datasets,
             wv,

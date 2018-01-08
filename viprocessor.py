@@ -128,18 +128,23 @@ def build_data_cv(revs, cv=10, lowered=True, tokenized=True, punctuation_removed
     return out_revs, vocab, max_l, count
 
 
-def build_dataset(data_folder, we_folder, dim=300, cv=10, limit=None, vi=False):
+def build_dataset(data_folder, we_folder, cv_file=None, dim=300, cv=10, limit=None, vi=False):
     print("loading data...")
     origin_revs = read_file(data_folder, limit)
+
+    if cv_file is None:
     
-    revs, vocab, max_l, count = build_data_cv(
-        origin_revs,
-        cv=cv,
-        lowered=True,
-        tokenized=vi,
-        punctuation_removed=vi,
-        cleaned=True
-    )
+        revs, vocab, max_l, count = build_data_cv(
+            origin_revs,
+            cv=cv,
+            lowered=True,
+            tokenized=vi,
+            punctuation_removed=vi,
+            cleaned=True
+        )  
+    else:
+        revs, vocab, max_l, count = cPickle.load(open(cv_file, 'rb'))
+    
     print("data loaded!")
         
     print("number of sentences: " + str(len(revs)))
@@ -180,13 +185,24 @@ def build_dataset(data_folder, we_folder, dim=300, cv=10, limit=None, vi=False):
 
 if __name__=="__main__":  
     data_folder = [
-        "./data/bphone/neg",
-        "./data/bphone/pos"
+        "./data/foody/neg",
+        "./data/foody/pos"
     ]
-    we_folder = './data/bphone/'
-    save_file = "./data/bphone/data.p"
-    dim = 300
-    cv = 5
-    limit = 80
-    vi = True
-    cPickle.dump(build_dataset(data_folder, we_folder, dim, cv, limit), open(save_file, "wb"))
+    we_folder = './data/foody/'
+    cv_file = './data/foody/cv.p'
+    
+    revs = read_file(data_folder)
+    cPickle.dump(build_data_cv(
+        revs,
+        cv=5
+    ), open(cv_file, 'wb'))
+
+    for dim in (10, 25, 50, 100, 150, 200, 250, 300):
+        save_file = "./data/foody/data" + str(dim)+ ".p"
+        cPickle.dump(build_dataset(
+            data_folder=data_folder,
+            we_folder=we_folder,
+            cv_file=cv_file,
+            dim=dim
+        ), open(save_file, 'wb'))
+    

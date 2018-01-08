@@ -93,31 +93,32 @@ def _prepare_data(seqs, labels, max_l=None, pad=None):
     return x, x_mask, labels
 
 
-def _load_data(revs, word_idx_map, sort_by_len=True, valid_portion=0.1):
+def _load_data(revs, word_idx_map, sort_by_len=True, valid_fold=0):
     train_x, train_y = [], []
     valid_x, valid_y = [], []
     #test_x, test_y = [], []
 
     for rev in revs:
         sent = [word_idx_map[w] for w in rev['text'].split() if w in word_idx_map]
-        train_x.append(sent)
-        train_y.append(rev['y'])
-        #if rev['split'] == fold:
-        #    test_x.append(sent)
-        #    test_y.append(rev['y'])
-        #else:
-        #    train_x.append(sent)
-        #    train_y.append(rev['y'])
+        #train_x.append(sent)
+        #train_y.append(rev['y'])
+        
+        if rev['split'] == valid_fold:
+            valid_x.append(sent)
+            valid_y.append(rev['y'])
+        else:
+            train_x.append(sent)
+            train_y.append(rev['y'])
 
-    n_samples = len(train_x)
-    sidx = np.random.permutation(n_samples)
-    n_train = int(np.round(n_samples * (1. - valid_portion)))
+    #n_samples = len(train_x)
+    #sidx = np.random.permutation(n_samples)
+    #n_train = int(np.round(n_samples * (1. - valid_fold)))
 
-    valid_x = [train_x[i] for i in sidx[n_train:]]
-    valid_y = [train_y[i] for i in sidx[n_train:]]
+    #valid_x = [train_x[i] for i in sidx[n_train:]]
+    #valid_y = [train_y[i] for i in sidx[n_train:]]
 
-    train_x = [train_x[i] for i in sidx[:n_train]]
-    train_y = [train_y[i] for i in sidx[:n_train]]
+    #train_x = [train_x[i] for i in sidx[:n_train]]
+    #train_y = [train_y[i] for i in sidx[:n_train]]
 
     print("train: {0} - valid: {1}".format(len(train_x), len(valid_x)))
 
@@ -146,21 +147,21 @@ def _load_data(revs, word_idx_map, sort_by_len=True, valid_portion=0.1):
 
 def train_model(
     revs, word_idx_map, max_l, pad, report_to,
-    valid_portion=0.1,
+    valid_fold=0,
     n_words=10000,
     dim_proj=128,  # word embeding dimension and LSTM number of hidden units.
     max_epochs=100,  # The maximum number of epoch to run
     decay_c=0.,  # Weight decay for the classifier applied to the U weights.
-    lrate=0.01,  # Learning rate for sgd (not used for adadelta and rmsprop)
+    lrate=0.1,  # Learning rate for sgd (not used for adadelta and rmsprop)
     optimizer='adadelta',
-    encoder='lstm',
-    rnnshare=True,
+    encoder='cnnlstm',
+    rnnshare=False,
     bidir=False,
     batch_size=16,  # The batch size during training.
     valid_batch_size=64,  # The batch size used for validation/test set.
     W=None,  # embeddings
     deep=0,  # number of layers above
-    rnnlayer=0,  # number of rnn layers
+    rnnlayer=1,  # number of rnn layers
     filter_hs=[3, 4, 5],  # filter's width
     feature_maps=100,   # number of filters
     pool_type='max',  # pooling type
@@ -177,7 +178,7 @@ def train_model(
     model_options = locals().copy()
 
     prepare_data = lambda x, y: _prepare_data(x, y, max_l=max_l, pad=None)
-    load_data = lambda: _load_data(revs, word_idx_map, valid_portion=valid_portion)
+    load_data = lambda: _load_data(revs, word_idx_map, valid_fold=valid_fold)
 
     train, valid = load_data()
 
